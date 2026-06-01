@@ -1,4 +1,4 @@
-# ContAwaER
+# ContAwaER (temp project name?)
 
 Context-Aware Entity Retriever.
 
