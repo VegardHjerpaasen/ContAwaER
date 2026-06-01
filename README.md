@@ -1,150 +1,84 @@
-# ContAwaER (or something)
+# ContAwaER
 
-Context-Aware Entity Retrieval experiments
+Context-Aware Entity Retriever.
 
-Prerequisites
+ContAwaER is an experiment in entity retrieval where a raw mention is combined
+with surrounding context before querying Elasticsearch. The current pipeline
+uses a local Ollama model to turn `mention + context` into a small controlled
+DSL, then converts that DSL into an Elasticsearch query.
+
+Example task:
+
+```text
+Mention: 007
+Context: fictional agent
+```
+
+The LLM may generate:
+
+```text
+mention(007, 2)
+context(fictional agent, 8)
+type(person, 5)
+strong(secret agent, 10)
+strong(British spy, 9)
+exclude(number)
+confidence(high)
+size(10)
+```
+
+`QueryType.LLM_TEMPLATE` converts that plan into an Elasticsearch bool query.
+The mention is used as a candidate anchor, while context/type/strong/weak
+clauses influence ranking.
+
+## Requirements
+
 * Java 21+
 * Maven
 * Access to the Elasticsearch API
 * Elasticsearch index name
 * Bearer authentication token
+* Ollama running locally for the current `Main` pipeline
 
-
-# Configuration
-
-All project settings are located in `Config.java`.
-
-Example:
+The current local LLM client uses:
 
 ```java
-public class Config {
-
-    public static final String TOKEN =
-            System.getenv("ELASTIC_TOKEN");
-
-    public static final String INDEX =
-            System.getenv("ELASTIC_INDEX");
-
-    public static final String ES_URL =
-            System.getenv("ES_URL");
-
-    public static final PrintStyle PRINT_STYLE =
-            PrintStyle.SUMMARY;
-}
+requestBody.put("model", "qwen3:1.7b");
+requestBody.put("think", false);
 ```
 
-To change how results are displayed, modify:
+Install the model with:
 
-```java
-Config.PRINT_STYLE
+```powershell
+ollama pull qwen3:1.7b
 ```
 
----
+## Configuration
 
-# Running Queries
+Runtime configuration is in `src/main/java/publics/Config.java`.
 
-Create an Elasticsearch client:
+The Elasticsearch settings are read from environment variables:
 
-```java
-import ElasticSearch.ElasticSearch;
-
-ElasticSearch es = new ElasticSearch();
+```text
+ELASTIC_TOKEN
+ELASTIC_INDEX
+ELASTIC_URL
 ```
 
-Queries are executed using:
+PowerShell example:
 
-```java
-es.query(query, queryType);
+```powershell
+setx ELASTIC_TOKEN "<token>"
+setx ELASTIC_INDEX "<index>"
+setx ELASTIC_URL "<url>"
 ```
 
-The first parameter contains the query.
+Open a new terminal after using `setx`.
 
-The second parameter determines how the query should be interpreted.
-
----
-
-# SIMPLE Queries
-
-A SIMPLE query automatically generates an Elasticsearch `multi_match` query.
-
-Example:
+Result display is controlled by:
 
 ```java
-import ElasticSearch.QueryType;
-
-String result = es.query(
-        "Rome",
-        QueryType.SIMPLE
-);
-```
-
-Another example:
-
-```java
-import ElasticSearch.QueryType;
-
-String result = es.query(
-        "Realm of the Mad God hardest dungeon",
-        QueryType.SIMPLE
-);
-```
-
-SIMPLE queries search across:
-
-* label
-* labels
-* aliases
-* context_string
-
-and are recommended for quick testing.
-
----
-
-# RAW Queries
-
-RAW queries give full control over the Elasticsearch request body.
-
-The provided string is sent directly to Elasticsearch.
-
-Example:
-
-```java
-import ElasticSearch.QueryType;
-
-String result = es.query(
-        """
-                {
-                  "query": {
-                    "match_phrase": {
-                      "label": "Realm of the Mad God"
-                    }
-                  },
-                  "size": 10
-                }
-                """,
-        QueryType.RAW
-);
-```
-
-Use RAW queries when experimenting with:
-
-* custom Elasticsearch queries
-* filters
-* boosting
-* fuzzy search
-* context-aware retrieval strategies
-
----
-
-# Printing Results
-
-Results are displayed using:
-
-```java
-ResultPrinter.print(
-        result,
-        Config.PRINT_STYLE
-);
+public static final PrintStyle PRINT_STYLE = PrintStyle.SUMMARY;
 ```
 
 Available print styles:
@@ -155,44 +89,162 @@ PrintStyle.SUMMARY
 PrintStyle.THESIS
 ```
 
-### JSON
+Note: `Config.OllamaURL` exists, but `OllamaClient` currently sends requests to
+`http://localhost:11434/api/generate` directly.
 
-Prints the full Elasticsearch response.
+## Current Pipeline
 
-### SUMMARY
+`Main` currently:
 
-Prints a human-readable overview of retrieved entities.
+1. Sets a hard-coded test mention and context.
+2. Sends a prompt to local Ollama.
+3. Receives controlled DSL commands.
+4. Calls `ElasticSearch.query(generatedQuery, QueryType.LLM_TEMPLATE)`.
+5. Prints the raw Elasticsearch response.
+6. Prints a formatted result summary.
+7. Prints total pipeline, Elasticsearch, and LLM timings.
 
-### THESIS
-
-Prints a compact ranking table useful for retrieval experiments and evaluation.
-
----
-
-# Example
+Current test input in `Main.java`:
 
 ```java
-import ElasticSearch.ElasticSearch;
-
-public static void main(String[] args) {
-
-    ElasticSearch es = new ElasticSearch();
-
-    try {
-
-        String result = es.query(
-                "Realm of the Mad God hardest dungeon",
-                QueryType.SIMPLE
-        );
-
-        ResultPrinter.print(
-                result,
-                Config.PRINT_STYLE
-        );
-
-    } catch (Exception e) {
-        e.printStackTrace();
-    }
-}
+String mention = "007";
+String context = "fictional agent";
 ```
 
+## Query Types
+
+Queries are executed through:
+
+```java
+ElasticSearch es = new ElasticSearch();
+String result = es.query(query, queryType);
+```
+
+The second parameter controls how the first parameter is interpreted.
+
+### `QueryType.SIMPLE`
+
+Builds a basic Elasticsearch `multi_match` query.
+
+```java
+String result = es.query(
+        "Rome",
+        QueryType.SIMPLE
+);
+```
+
+Searched fields:
+
+* `label^4`
+* `labels^2`
+* `aliases`
+* `context_string`
+
+### `QueryType.RAW`
+
+Sends the provided string directly as the Elasticsearch request body.
+
+```java
+String result = es.query(
+        """
+        {
+          "query": {
+            "match_phrase": {
+              "label": "James Bond"
+            }
+          },
+          "size": 10
+        }
+        """,
+        QueryType.RAW
+);
+```
+
+Use this for manual Elasticsearch experiments.
+
+### `QueryType.LLM_TEMPLATE`
+
+Parses the controlled DSL generated by the local LLM.
+
+Supported commands:
+
+```text
+mention(value)
+mention(value, boost)
+optionalMention(value)
+optionalMention(value, boost)
+
+type(value)
+type(value, boost)
+
+strong(value)
+strong(value, boost)
+weak(value)
+weak(value, boost)
+
+context(value)
+context(value, boost)
+description(value)
+description(value, boost)
+
+exclude(value)
+confidence(value)
+size(number)
+```
+
+Boosts are optional. If omitted, defaults are used:
+
+```text
+mention: 10
+optionalMention: 3
+type: 2
+strong: 5
+weak: 2
+context: 4
+description: 4
+```
+
+Boosts are clamped to `0.1` through `20`.
+
+`confidence(...)` is currently parsed but ignored.
+
+## LLM_TEMPLATE Query Behavior
+
+`mention(...)` has two roles:
+
+* It is added to the Elasticsearch `filter` as a required candidate anchor.
+* It is also added to `should` with its boost, so it can still affect ranking.
+
+This keeps candidates tied to the mention while allowing context to rerank
+ambiguous entities.
+
+Other commands are translated as follows:
+
+* `context`, `strong`, `weak`, and `type` match against `context_string`.
+* `description` matches against `description`.
+* `exclude` becomes a `must_not` match against `context_string`.
+* `size` controls the Elasticsearch result size.
+
+## Running
+
+With Maven:
+
+```powershell
+mvn compile
+mvn exec:java -Dexec.mainClass="Main"
+```
+
+If `exec:java` is not configured in your Maven environment, run from IntelliJ or
+compile/run with the project classpath manually.
+
+## Output
+
+The application prints:
+
+* The Ollama request body.
+* Ollama status and response body.
+* The generated DSL query.
+* The Elasticsearch JSON request body.
+* The raw Elasticsearch response.
+* A formatted result view from `ResultPrinter`.
+* Timing for the total pipeline, Elasticsearch, and LLM generation.

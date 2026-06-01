@@ -28,16 +28,17 @@ public class OllamaClient {
 
     public String generate(String prompt)
             throws IOException, InterruptedException {
-        System.out.println("Preparing request...");
+        System.out.println("Preparing request...\n");
         long start = System.nanoTime();
         ObjectMapper mapper = new ObjectMapper();
 
         ObjectNode requestBody =
                 mapper.createObjectNode();
 
-        requestBody.put("model", "qwen3:8b");
+        requestBody.put("model", "qwen3:1.7b");
         requestBody.put("prompt", prompt);
         requestBody.put("stream", false);
+        requestBody.put("think", false);
 
         String body =
                 mapper.writeValueAsString(requestBody);

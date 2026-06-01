@@ -22,6 +22,8 @@ public class ElasticSearch {
 
         String body = type.buildBody(query);
 
+        System.out.println("Elastic Search Body Query:\n\n" + body + "\n\n");
+
         String url = Config.ES_URL
                 + "/debug/elasticsearch/"
                 + Config.INDEX
